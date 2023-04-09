@@ -1,0 +1,273 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r}
+nombre_lignes <- vector("numeric", length = 17)
+
+for (annee in 2005:2021) {
+  chemin <- paste0("~/M1/DM projet/caracteristiques/caracteristiques_", annee, ".csv")
+  nombre_lignes[annee-2004] <- length(readLines(chemin))
+}
+
+#Graphique du nombre d'accident par an
+plot(2005:2021, 
+     nombre_lignes, 
+     type = "b", 
+     xlab = "Année", 
+     ylab = "Nombre d'accidents",
+     main = "Nombre d'accidents de 2005 à 2021")
+```
+```{r}
+df_list <- list()
+
+#De 2005 à 2018 (cas spécial 2009) séparateur ","
+for (annee in 2005:2018) {
+  chemin <- paste0("~/M1/DM projet/caracteristiques/caracteristiques_", annee, ".csv")
+  df <- read.csv(chemin, sep = ",")
+  nom_df <- paste0("caracteristiques_", annee)
+  assign(nom_df, df)
+  df_list[[annee-2004]] <- df
+}
+
+#De 2019 à 2021, séparateur ";"
+for (annee in 2019:2021) {
+  chemin <- paste0("~/M1/DM projet/caracteristiques/caracteristiques_", annee, ".csv")
+  df <- read.csv(chemin, sep = ";")
+  nom_df <- paste0("caracteristiques_", annee)
+  assign(nom_df, df)
+  df_list[[annee-2004]] <- df
+}
+
+#Cas spécial csv 2009 on supprime les guillemets en fin et début de liste et le séparateur est une tabulation
+lines <- readLines('~/M1/DM projet/caracteristiques/caracteristiques_2009.csv')
+lines <- gsub("^\"|\"$", "", lines)
+caracteristiques_2009 <- read.csv(text = lines, sep = "\t", header = TRUE)
+df_list[[2009-2004]] <- caracteristiques_2009
+
+# Fonction pour obtenir le nombre d'accidents par mois dans un dataframe
+get_accident_counts <- function(df) {
+  counts <- table(df$mois)
+  return(counts)
+}
+
+# Nombre d'accidents par mois dans chaque dataframe
+counts_list <- lapply(df_list, get_accident_counts)
+
+# Nombre moyen d'accidents pour chaque mois
+mean_counts <- tapply(unlist(counts_list), rep(1:12, each = length(counts_list)), mean)
+
+# Graphique du nombre d'accident moyen par mois de l'année 2005 à 2021
+barplot(mean_counts, 
+        main = "Moyenne d'accidents par mois", 
+        xlab = "Mois", 
+        ylab = "Nombre moyen d'accidents",
+        names.arg = month.abb)
+```
+Maintenant nous allons nous concentrer seulement sur une année (l'année 2021)
+```{r}
+# csv récupéré en dataframe
+caracteristiques_2021 <- read.csv("~/M1/DM projet/caracteristiques/caracteristiques_2021.csv", sep = ";", header = TRUE)
+```
+
+Affichage géographique
+
+```{r}
+caracteristiques_geo <- data.frame(caracteristiques_2021)
+
+caracteristiques_geo$long <- as.numeric(gsub(",", ".", caracteristiques_geo$long))
+caracteristiques_geo$lat <- as.numeric(gsub(",", ".", caracteristiques_geo$lat))
+caracteristiques_geo$com <- as.numeric(caracteristiques_2021$com)
+caracteristiques_geo <- subset(caracteristiques_geo, !is.na(com))
+caracteristiques_geo <- caracteristiques_geo[, c("Num_Acc", "com", "agg", "dep", "adr", "long", "lat")]
+```
+
+```{r}
+
+# correspondances département, régions
+correspondances <- read.csv("./departements-region.csv", sep = ",", stringsAsFactors = FALSE,
+                  encoding = "UTF-8", header = TRUE)
+
+colnames(correspondances)[colnames(correspondances) == "num_dep"] <- "dep"
+
+caracteristiques_geographiques <- merge(correspondances, caracteristiques_geo, by = "dep")
+
+caracteristiques_geographiques
+```
+```{r}
+# Compte le nombre d'accidents par région
+accidents_par_region <- table(caracteristiques_geographiques$region_name)
+
+accidents_par_region_tries <- sort(accidents_par_region, decreasing = TRUE)
+top_10_regions <- head(accidents_par_region_tries, n = 10)
+couleurs <- rainbow(10)
+
+# Préparer les arguments pour le graphique en barres
+arguments <- paste0(names(top_10_regions)," ",as.numeric(top_10_regions)," accidents")
+
+                    
+# On crée le graphique en barres des 10 régions ayant le plus d'accidents
+barplot(top_10_regions, 
+        xlab = "Région", 
+        ylab = "Nombre d'accidents",
+        main = "Nombre d'accident par région",
+        col = couleurs)
+
+legend("topright", legend = arguments, fil = couleurs)
+
+```
+
+
+```{r}
+library(leaflet)
+
+#Carte accidents en France
+map <- leaflet(caracteristiques_geographiques) %>%
+  addTiles() %>%
+  addMarkers(clusterOptions = markerClusterOptions()) %>%
+  setView(lng = mean(caracteristiques_geographiques$long), lat = mean(caracteristiques_geographiques$lat), zoom = 6)
+
+# Afficher la carte
+map
+```
+
+```
+```
+
+```{r}
+# table d'occurence pour chaque int dans lum
+table_lum <- table(caracteristiques_2021$lum)
+
+# table pourcentage pour chaque attribut de table_lum
+pourcentages_lum <- round((table_lum / sum(table_lum)) * 100, 1)
+
+# Graphique camembert de la répartition des accidents par luminosité
+pie(table_lum, 
+    labels = paste0(c("Plein jour", "Crépuscule ou aube", "Nuit sans éclairage public", "Nuit avec éclairage public non allumé", "Nuit avec éclairage public allumé"), "(", pourcentages_lum, "%)"), 
+    main = "Répartition des accidents par luminosité", col = rainbow(length(table_lum)), 
+    border = NA)
+```
+```{r}
+# table d'occurence pour chaque int dans agg
+table_agg <- table(caracteristiques_2021$agg)
+
+# table pourcentage pour chaque attribut de table_agg
+pourcentages_agg <- round((table_agg / sum(table_agg)) * 100, 1)
+
+# Graphique baton de la répartition des accidents agglomération/hors agglomération
+barplot(table_agg, 
+        names.arg = paste0(c("Hors agglomération", "En agglomération"), " (",pourcentages_agg," %)"),
+        main = "Répartition des accidents agglomération/hors agglomération", 
+        ylab = "Nombre d'accidents", 
+        col = rainbow(length(table_agg)), 
+        border = NA)
+
+```
+```{r}
+# table d'occurence pour chaque int dans int
+table_int <- table(caracteristiques_2021$int)
+
+# table pourcentage pour chaque attribut de table_int
+pourcentages_int <- round((table_int / sum(table_int)) * 100, 1)
+
+couleurs <- rainbow(length(table_lum))
+arguments <- paste0(c("Hors intersection", "Intersection en X", "Intersection en T", "Intersection en Y", "Intersection à plus de 4 branches", "Giratoire, Place", "Passage à niveau", "Autre intersection"), " (", pourcentages_int, "%)")
+
+# Graphique camembert de la répartition des accidents par type d'intersection
+barplot(table_int, 
+    main = "Répartition des accidents par type d'intersection", 
+    col = couleurs, 
+    border = NA)
+
+legend("topright", legend = arguments, fil = couleurs)
+
+```
+```{r}
+# table d'occurence pour chaque int dans col
+table_col <- table(caracteristiques_2021$col)
+
+# table pourcentage pour chaque attribut de table_col
+pourcentages_col <- round((table_int / sum(table_int)) * 100, 1)
+
+# Graphique camembert de la répartition des accidents par type de colision
+pie(table_col, 
+    labels = paste0(c("Non renseigné", "Deux véhicules - frontale", "Deux véhicules – par l’arrière", "Deux véhicules – par le coté", "Trois véhicules et plus – en chaîne", "Trois véhicules et plus - collisions multiples", "Autre collision", "Sans collision"), " (", pourcentages_col, "%)"), 
+    main = "Répartition des accidents par type de colision", 
+    col = rainbow(length(table_col)), 
+    border = NA)
+```
+
+```{r}
+# table d'occurence pour chaque int dans atm
+table_atm <- table(caracteristiques_2021$atm)
+
+# table pourcentage pour chaque attribut de table_col
+pourcentages_atm <- round((table_atm / sum(table_atm)) * 100, 1)
+
+couleur <- rainbow(length(table_atm))
+arguments <- paste0(c("Non renseigné", "Normale", "Pluie légère", "Pluie forte", "Neige - grêle", "Brouillard - fumée", "Vent fort - tempête", "Temps éblouissant", "Temps couvert", "Autre"), " (", pourcentages_atm, "%)")
+
+# Graphique baton de la répartition des accidents par rapport à la météo
+barplot(table_atm, 
+        main = "Répartition des accidents par rapport aux conditions atmosphériques : ", 
+        ylab = "Nombre d'accidents", 
+        col = couleur, 
+        border = NA)
+
+legend("topright", legend = arguments, fil = couleur)
+```
+Courbes par usagers :
+```{r}
+# table d'occurence pour chaque int dans catu
+table_catu <- table(usagers_2021$catu)
+
+# table pourcentage pour chaque attribut de table_catu
+pourcentages_catu <- round((table_catu / sum(table_catu)) * 100, 1)
+
+# Graphique camembert de la répartition des accidents par rapport à la catégorie d'usager
+pie(table_catu, 
+    labels = paste0(c("Conducteur","Passager","Piéton"), " (", pourcentages_catu, "%)"), 
+    main = "Répartition des accidents par rapport à la catégorie d'usager : ", 
+    col = rainbow(length(table_catu)), 
+    border = NA)
+
+
+```
+
+
+```{r}
+usagers_2021 <- read.csv("~/M1/DM projet/usagers/usagers_2021.csv", sep = ";", header = TRUE)
+
+# table d'occurence pour chaque int dans sexe
+table_sexe <- table(usagers_2021$sexe)
+
+# table pourcentage pour chaque attribut de table_agg
+pourcentages_sexe <- round((table_sexe / sum(table_sexe)) * 100, 1)
+
+# Graphique baton de la répartition des accidents par sexe
+barplot(table_sexe, 
+        names.arg = paste0(c("Non spécifié", "Homme", "Femme"), " (", pourcentages_sexe, "%)"),
+        main = "Répartition des accidents par sexe", 
+        ylab = "Nombre d'accidents", 
+        col = c("gray", "blue", "pink"), 
+        border = NA)
+```
+```{r}
+# table d'occurence pour chaque int dans grav
+table_grav <- table(usagers_2021$grav)
+
+# table pourcentage pour chaque attribut de table_col
+pourcentages_grav <- round((table_grav / sum(table_grav)) * 100, 1)
+
+# Graphique camembert de la répartition des accidents par rapport à la gravité des blessures
+pie(table_grav, 
+    labels = paste0(c("Non spécifié", "Indemne", "Tué", "Blessé hospitalisé", "Blessé léger"), " (", pourcentages_grav, "%)"), 
+    main = "Répartition des accidents par rapport à la gravité des blessures : ", 
+    col = rainbow(length(table_col)), 
+    border = NA)
+
+```
+
